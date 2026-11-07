@@ -96,11 +96,38 @@ N frames), `--timeout`, `--retries`, `--baudrate` (only for a real UART). Run
   reported as an error.
 * `--debug` prints every TX/RX frame as hex.
 
+### Desktop app (`sci_gui.py`)
+
+A Tkinter window on top of `sci_client.py` (Tkinter ships with Python on Windows):
+
+```
+python sci_gui.py                          # start the viewer
+python sci_gui.py --port COM5              # preselect a port
+python sci_gui.py --simulate --autostart   # demo with the built-in simulator (no hardware)
+```
+
+Pick the port (*Auto-detect*, a COM port, *Raw USB (pyusb/WinUSB)* or *Simulator*), click
+**Connect** (prints the device info), choose measurement mode / output (`3d`, `full`, `1d`) /
+frame time and click **Start**. The 8x4 map shows each pixel's distance in mm (colour scale:
+red = near, blue = far; red outline = pixel status not OK, grey = no signal), next to the
+1D distance (or the mean of the valid pixels in `3d` mode), the frame rate and the log
+(NAKs, CRC errors, timeouts; tick *Debug hex log* for raw TX/RX frames).
+
+#### Standalone `.exe`
+
+```
+pip install pyinstaller pyserial pyusb libusb-package
+pyinstaller --noconfirm --onefile --windowed --name AFBR-S50-Viewer --collect-all libusb_package ^
+    --hidden-import serial.tools.list_ports --hidden-import usb.backend.libusb1 sci_gui.py
+```
+
+The result is `dist\AFBR-S50-Viewer.exe`, which runs without a Python installation.
+
 ### Tests
 
 The framing, CRC, ACK/NAK and measurement-data parsers are tested against the example
 frames from the SDK documentation and against frames built with a port of the firmware
-serializer (no hardware needed):
+serializer, plus the GUI's built-in simulator (no hardware needed):
 
 ```
 python -m unittest -v test_sci_client

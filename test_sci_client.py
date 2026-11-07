@@ -282,5 +282,26 @@ class ClientTests(unittest.TestCase):
             c.close()
 
 
+class SimulatorTests(unittest.TestCase):
+    def test_gui_simulator_streams_parseable_frames(self):
+        import sci_gui
+        c = sc.SciClient(sci_gui.SimTransport(), timeout=0.5, log=lambda m: None)
+        try:
+            self.assertEqual(c.software_info().devices[0].module, 0x45)
+            for out, n_pixels in (("3d", 32), ("full", 32), ("1d", 0)):
+                c.set_data_output_mode(sc.OUTPUT_MODES[out])
+                c.set_frame_time_us(10000)
+                c.start_measurements()
+                f = c.next_data_frame(2.0)
+                self.assertIsNotNone(f)
+                m = sc.parse_measurement_data(f.cmd, f.payload)
+                self.assertEqual(len(m.pixels), n_pixels)
+                c.stop_measurements()
+                while c.next_data_frame(0.05):
+                    pass
+        finally:
+            c.close()
+
+
 if __name__ == "__main__":
     unittest.main()
