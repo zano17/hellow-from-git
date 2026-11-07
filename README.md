@@ -123,6 +123,29 @@ pyinstaller --noconfirm --onefile --windowed --name AFBR-S50-Viewer --collect-al
 
 The result is `dist\AFBR-S50-Viewer.exe`, which runs without a Python installation.
 
+### OpenMV (`afbr_openmv.py`, UART)
+
+`afbr_openmv.py` is a MicroPython script for an OpenMV camera (e.g. OpenMV N6). It talks the
+same SCI protocol over a UART instead of USB.
+
+1. **Flash the UART firmware.** The Explorer App uses either USB or UART, chosen at compile
+   time (`AFBR_SCI_USB` in `Sources/ExplorerApp/sci/sci_datalink.c`). Open
+   `Projects/e2Studio/AFBR_S50_ExplorerApp_RA4M2` from AFBR-S50-API **v1.5.6** in Renesas
+   e² studio, select the **ReleaseUART** build configuration (`AFBR_SCI_USB=0`), build it and
+   flash it to the RA4M2 (e.g. with a J-Link/E2 lite debugger, as for the stock firmware).
+   With this firmware the board no longer talks over USB, so `sci_client.py`, `sci_gui.py` and
+   Broadcom's Explorer won't see it until you flash the USB build (**Release**) back.
+2. **Wire it** (3.3 V logic): RA4M2 SCI0 TX (P101) -> OpenMV UART RX, SCI0 RX (P100) ->
+   OpenMV UART TX, GND -> GND. Check the MIKROE-6239 schematic for where P100/P101 come out
+   and the OpenMV N6 pinout for the UART you use.
+3. **Run it.** Set `UART_ID`, `OUTPUT`, `MODE` and `FRAME_TIME_US` at the top of the script
+   (115200 baud is the firmware default), copy it to the OpenMV drive and run it from the
+   OpenMV IDE. It prints the device info, then one line per frame, e.g.
+   `distance 1532 mm (mean)  pixels sent 32 of 32, 30 valid`.
+
+At 115200 baud a 3D frame (~220 bytes) fits about 50 times per second; use `1d` output for
+higher frame rates.
+
 ### Tests
 
 The framing, CRC, ACK/NAK and measurement-data parsers are tested against the example

@@ -354,5 +354,54 @@ class SimulatorTests(unittest.TestCase):
             c.close()
 
 
+
+class OpenMvScriptTests(unittest.TestCase):
+    """Runs the MicroPython script's client against the GUI simulator via a UART-like adapter."""
+
+    def test_openmv_client_matches_sci_client(self):
+        import afbr_openmv as omv
+        import sci_gui
+
+        class Uart:
+            def __init__(self):
+                self.sim = sci_gui.SimTransport()
+
+            def write(self, data):
+                self.sim.write(data)
+
+            def read(self):
+                return self.sim.read() or None
+
+        s = omv.AFBR(Uart(), timeout_ms=500)
+        info = s.software_info()
+        self.assertEqual(info["explorer"], "1.5.6")
+        self.assertEqual(info["devices"][0]["module"], 0x45)
+        for out, n_pixels in (("3d", 32), ("full", 32), ("1d", 0)):
+            s.configure(out, "long-range", 10000)
+            s.start()
+            cmd, payload = None, None
+            t0 = time.monotonic()
+            while payload is None and time.monotonic() - t0 < 2:
+                s._poll()
+                if s.data:
+                    cmd, payload = s.data.pop(0)
+            self.assertIsNotNone(payload)
+            m = omv.parse_measurement(cmd, payload)
+            ref = sc.parse_measurement_data(cmd, payload)
+            self.assertEqual(len(m.get("pixels", [])), n_pixels)
+            for (x, y, st, rg, am), p in zip(m.get("pixels", []), ref.pixels):
+                self.assertEqual((x, y, st, am), (p.x, p.y, p.status, p.amplitude))
+                self.assertEqual(rg, p.range_mm)
+            if ref.range_1d_mm is not None:
+                self.assertAlmostEqual(m["range_1d_mm"], ref.range_1d_mm)
+            self.assertIn("distance", omv.summary(m))
+            s.stop()
+
+    def test_openmv_encoder_matches_sdk_examples(self):
+        import afbr_openmv as omv
+        self.assertEqual(omv.encode_frame(0x41, bytes([0x07])), bytes.fromhex("024107F503"))
+        self.assertEqual(omv.encode_frame(0x43, bytes.fromhex("000186A0")), sc.encode_frame(0x43, bytes.fromhex("000186A0")))
+        self.assertEqual(omv.Decoder().feed(b"" + sc.encode_frame(0x0A, b"")), [(0x0A, b"")])
+
 if __name__ == "__main__":
     unittest.main()
