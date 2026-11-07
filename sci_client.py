@@ -202,13 +202,17 @@ class FrameDecoder:
         for b in data:
             if self._escape:
                 self._escape = False
+                if b == START_BYTE:
+                    out.append(FrameError("escape byte followed by start byte", bytes(self._buf or b"")))
+                    self._buf = bytearray()
+                    continue
                 b ^= 0xFF
                 if self._buf is not None and b not in CONTROL_BYTES:
                     out.append(FrameError(f"invalid escaped byte 0x{b:02X}", bytes(self._buf)))
                     self._buf = None
                     continue
             elif b == ESCAPE_BYTE:
-                self._escape = True
+                self._escape = self._buf is not None
                 continue
             elif b == START_BYTE:
                 if self._buf:
@@ -351,7 +355,7 @@ def parse_software_info(payload: bytes) -> SoftwareInfo:
     explorer, api = r.u32(), r.u32()
     start = r.pos
     count = r.u8()
-    if 0 < count <= 16 and r.remaining() >= 7 * count:
+    if count <= 16 and r.remaining() >= 7 * count:
         devices = [DeviceEntry(r.u8(), r.u8(), r.u8(), r.u8(), r.u24()) for _ in range(count)]
         text = r.take(r.remaining())
         if all(32 <= c < 127 for c in text.rstrip(b"\0")):
@@ -759,6 +763,7 @@ class SciClient:
 
     def _wait_ack(self, cmd: int, expect_response: bool) -> Optional[Frame]:
         response: Optional[Frame] = None
+        acked = False
         deadline = time.monotonic() + self.timeout
         while True:
             self._check_rx()
@@ -771,12 +776,13 @@ class SciClient:
             except queue.Empty:
                 continue
             if f.cmd == CMD_ACK:
-                acked = parse_ack(f)
-                if acked == cmd:
-                    if expect_response and response is None:
-                        raise SciError(f"ACK for 0x{cmd:02X} received without response data")
-                    return response
-                self.log(f"[WARN] ACK for unexpected command 0x{acked:02X}")
+                acked_cmd = parse_ack(f)
+                if acked_cmd == cmd:
+                    if not expect_response or response is not None:
+                        return response
+                    acked = True  # the firmware may send the ACK ahead of a queued response
+                    continue
+                self.log(f"[WARN] ACK for unexpected command 0x{acked_cmd:02X}")
             elif f.cmd == CMD_NAK:
                 nak_cmd, reason = parse_nak(f)
                 if nak_cmd in (cmd, 0):  # 0: device could not decode our frame at all
@@ -784,6 +790,8 @@ class SciClient:
                 self.log(f"[WARN] NAK for unexpected command 0x{nak_cmd:02X}: {status_name(reason)}")
             elif f.cmd == cmd:
                 response = f
+                if acked:
+                    return response
             elif self.debug:
                 self.log(f"[RX] ignoring unexpected {f}")
 
@@ -870,8 +878,8 @@ def run(args: argparse.Namespace) -> int:
         except NakError as e:
             log(f"[WARN] could not set frame time {args.frame_time} us: {e}")
 
+        measuring = True  # also send stop on exit if the start ACK is lost
         client.start_measurements()
-        measuring = True
         log("Measurements started - press Ctrl+C to stop.\n")
 
         last_data = time.monotonic()

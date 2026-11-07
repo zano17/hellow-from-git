@@ -10,6 +10,7 @@ import struct
 import threading
 import time
 import unittest
+from unittest import mock
 
 import sci_client as sc
 
@@ -130,6 +131,14 @@ class DecodeTests(unittest.TestCase):
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0].payload, struct.pack(">I", 200000))
 
+    def test_stray_escape_does_not_drop_next_frame(self):
+        ack = sc.encode_frame(sc.CMD_ACK, b"")
+        frames = sc.FrameDecoder().feed(b"" + ack)
+        self.assertEqual([f.cmd for f in frames], [sc.CMD_ACK])
+        results = sc.FrameDecoder().feed(b"" + ack)
+        self.assertIsInstance(results[0], sc.FrameError)
+        self.assertEqual(results[-1].cmd, sc.CMD_ACK)
+
     def test_ack_nak(self):
         ack = sc.decode_frame(device_frame(sc.CMD_ACK, bytes([0x41])))
         self.assertEqual(sc.parse_ack(ack), 0x41)
@@ -151,6 +160,13 @@ class PayloadTests(unittest.TestCase):
         d = info.devices[0]
         self.assertEqual((d.address, d.module, d.uid), (1, 0x45, 0x123456))
         self.assertIn("AFBR-S50MX85I", info.describe())
+        self.assertEqual(info.id_string, "AFBR-S50 Explorer App - RA4M2")
+
+    def test_software_info_no_devices(self):
+        payload = struct.pack(">II", (1 << 24) | (5 << 16) | 6, (1 << 24) | (5 << 16) | 6)
+        payload += bytes([0]) + b"AFBR-S50 Explorer App - RA4M2"
+        info = sc.parse_software_info(payload)
+        self.assertEqual(info.devices, [])
         self.assertEqual(info.id_string, "AFBR-S50 Explorer App - RA4M2")
 
     def test_1d_data_v156(self):
@@ -269,6 +285,19 @@ class ClientTests(unittest.TestCase):
         finally:
             c.close()
 
+    def test_ack_before_queued_response(self):
+        class AckFirst(FakeTransport):
+            def _respond(self, data):
+                for f in self.decoder.feed(data):
+                    self.rx += sc.encode_frame(sc.CMD_ACK, bytes([f.cmd]))
+                    self.rx += sc.encode_frame(f.cmd, struct.pack(">I", 100000))
+
+        c = sc.SciClient(AckFirst(), timeout=0.5, retries=0, log=lambda m: None)
+        try:
+            self.assertEqual(c.get_frame_time_us(), 100000)
+        finally:
+            c.close()
+
     def test_timeout(self):
         class Silent(FakeTransport):
             def write(self, data):
@@ -281,6 +310,28 @@ class ClientTests(unittest.TestCase):
         finally:
             c.close()
 
+
+class CliTests(unittest.TestCase):
+    def test_lost_start_ack_still_sends_stop(self):
+        class NoStartAck(FakeTransport):
+            sent = []
+
+            def _respond(self, data):
+                for f in self.decoder.feed(data):
+                    self.sent.append(f.cmd)
+                    if f.cmd == sc.CMD_SOFTWARE_INFO:
+                        info = struct.pack(">IIB", 0x01050006, 0x01050006, 0) + b"Fake"
+                        self.rx += sc.encode_frame(f.cmd, info)
+                    if f.cmd == sc.CMD_CFG_FRAME_TIME and not f.payload:
+                        self.rx += sc.encode_frame(f.cmd, struct.pack(">I", 100000))
+                    if f.cmd != sc.CMD_MEASUREMENT_START:
+                        self.rx += sc.encode_frame(sc.CMD_ACK, bytes([f.cmd]))
+
+        with mock.patch.object(sc, "open_transport", return_value=NoStartAck()),                 mock.patch("builtins.print"):
+            rc = sc.main(["--timeout", "0.2", "--retries", "0", "--mode", "keep"])
+        self.assertEqual(rc, 4)
+        i = NoStartAck.sent.index(sc.CMD_MEASUREMENT_START)
+        self.assertIn(sc.CMD_MEASUREMENT_STOP, NoStartAck.sent[i + 1:])
 
 class SimulatorTests(unittest.TestCase):
     def test_gui_simulator_streams_parseable_frames(self):

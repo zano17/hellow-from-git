@@ -252,8 +252,8 @@ class Worker(threading.Thread):
             self.log(f"Frame time: {c.get_frame_time_us()} us")
         except sc.NakError as e:
             self.log(f"[WARN] could not set frame time: {e}")
+        self.measuring = True  # also send stop on disconnect if the start ACK is lost
         c.start_measurements()
-        self.measuring = True
         self.log("Measurements started")
         self.post("started")
 
