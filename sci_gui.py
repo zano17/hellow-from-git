@@ -529,6 +529,9 @@ class App:
         lines = [f"frames   : {self.frames}  ({self.fps:.1f} fps)",
                  f"time     : {m.timestamp:.3f} s",
                  f"status   : {sc.status_name(m.status)}"]
+        if m.pixel_enable_mask is not None:
+            sent = sum(1 for p in m.pixels if p.x is not None)
+            lines.append(f"pixels sent: {sent} of {len(self.cells)}")
         if valid:
             lines.append(f"pixels   : min {min(valid):.0f} / max {max(valid):.0f} mm, {len(valid)} valid")
         if m.optical_power_ma is not None:
