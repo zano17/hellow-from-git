@@ -131,13 +131,19 @@ same SCI protocol over a UART instead of USB.
 1. **Flash the UART firmware.** The Explorer App uses either USB or UART, chosen at compile
    time (`AFBR_SCI_USB` in `Sources/ExplorerApp/sci/sci_datalink.c`). Open
    `Projects/e2Studio/AFBR_S50_ExplorerApp_RA4M2` from AFBR-S50-API **v1.5.6** in Renesas
-   e² studio, select the **ReleaseUART** build configuration (`AFBR_SCI_USB=0`), build it and
-   flash it to the RA4M2 (e.g. with a J-Link/E2 lite debugger, as for the stock firmware).
+   e² studio, select the **ReleaseUART** build configuration (`AFBR_SCI_USB=0`) and build it
+   (the v1.5.6 release has no prebuilt binaries). Flash it with a debugger on J5 (SWD), or
+   without one via the RA4M2 USB bootloader: power off, put a jumper on J5 pins 7-9, plug in
+   USB, flash the `.srec`/`.hex` with Renesas Flash Programmer (RA, COM port), then remove the
+   jumper (see `Doxygen/06_reference_board.md` in the SDK).
    With this firmware the board no longer talks over USB, so `sci_client.py`, `sci_gui.py` and
    Broadcom's Explorer won't see it until you flash the USB build (**Release**) back.
-2. **Wire it** (3.3 V logic): RA4M2 SCI0 TX (P101) -> OpenMV UART RX, SCI0 RX (P100) ->
-   OpenMV UART TX, GND -> GND. Check the MIKROE-6239 schematic for where P100/P101 come out
-   and the OpenMV N6 pinout for the UART you use.
+2. **Wire it** (3.3 V logic) to the board's UART connector **J3**, a 6-pin JST GH
+   (1.25 mm pitch) socket; you need a matching GH 6-pin plug/cable (e.g. housing GHR-06V-S):
+   J3-3 TXD -> OpenMV UART RX, J3-2 RXD -> OpenMV UART TX, J3-6 GND -> GND (J3-1 is 5 V,
+   J3-4/5 are not connected). The J3 pinout is from Broadcom's reference-board docs; the
+   firmware's UART is SCI0 (P100/P101), and J3 being wired to it is not verified here against
+   the MIKROE-6239 schematic. Check the OpenMV N6 pinout for the UART you use.
 3. **Run it.** Set `UART_ID`, `OUTPUT`, `MODE` and `FRAME_TIME_US` at the top of the script
    (115200 baud is the firmware default), copy it to the OpenMV drive and run it from the
    OpenMV IDE. It prints the device info, then one line per frame, e.g.
